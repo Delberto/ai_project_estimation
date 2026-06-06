@@ -2,8 +2,15 @@ import os
 
 import requests
 import streamlit as st
-
+# Inicia la historia del chat 
 st.set_page_config(page_title="Estimador CAG", layout="wide")
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+#Itera la historia del chat y la muestra en la interfaz
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
 API_BASE_URL = st.sidebar.text_input(
     "URL de la API",
@@ -54,6 +61,7 @@ if st.button(
             detail = response.json().get("detail", response.text)
             st.error(f"Error de la API: {detail}")
         else:
+
             message = st.chat_message("assistant")
             message.markdown(data["estimation"])
 
@@ -62,6 +70,7 @@ if st.button(
                 col_model.metric("Modelo", data["model"])
                 col_provider.metric("Proveedor", data["provider"])
                 col_tokens.metric("Tokens", data.get("total_tokens") or "—")
+                st.session_state.messages.append({"role": "assistant", "content": data["estimation"]})
 
                 cost_parts = []
                 if data.get("cost_usd") is not None:
