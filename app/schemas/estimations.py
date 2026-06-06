@@ -18,4 +18,7 @@ class EstimationResponse(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    cached_tokens: int | None = None
+    cost_usd: float | None = None
+    cost_mxn: float | None = None
     generated_at: datetime

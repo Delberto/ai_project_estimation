@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 from app.routers import estimations
 
@@ -15,6 +16,11 @@ app = FastAPI(
 app.include_router(estimations.router, prefix="/api/v1")
 
 
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health", tags=["health"])
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "estimador-cag"}
@@ -22,6 +28,7 @@ def health() -> dict[str, str]:
 
 def main():
     import uvicorn
+
 
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 

@@ -6,8 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.3",
+    "numpy",
     "openai>=2.40.0",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
+    "streamlit",
     "uvicorn[standard]>=0.48.0",
 ]
