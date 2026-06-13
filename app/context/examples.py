@@ -1,3 +1,5 @@
+#aqui van los ejemplos de estimaciones y aqui es donde tienen que ir los ejemplos de las estomaciones
+
 ESTIMATION_EXAMPLES = [
     {
         "meeting_summary": "El cliente necesita una plataforma web de gestión de inventario para controlar entradas y salidas de productos, con autenticación de usuarios, dashboard de métricas y reportes exportables.",

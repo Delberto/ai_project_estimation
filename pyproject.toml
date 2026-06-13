@@ -11,5 +11,6 @@ dependencies = [
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
     "streamlit",
+    "structlog",
     "uvicorn[standard]>=0.48.0",
 ]

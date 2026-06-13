@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-@lru_cache
+#@url_cache
 def get_settings() -> Settings:
     """Return cached application settings (singleton)."""
     return Settings()
