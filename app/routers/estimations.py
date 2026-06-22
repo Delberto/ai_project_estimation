@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.estimations import EstimationRequest, EstimationResponse
+from app.schemas.estimations import EstimationResponse
+from app.schemas.schemas import EstimationRequest
 from app.services.llm_service import generate_estimation
 
 router = APIRouter(tags=["estimations"])
@@ -11,7 +12,7 @@ router = APIRouter(tags=["estimations"])
 @router.post("/estimate", response_model=EstimationResponse)
 def estimate(request: EstimationRequest) -> EstimationResponse:
     try:
-        result = generate_estimation(request.transcription)
+        result = generate_estimation(request)
     except Exception as exc:
         raise HTTPException(
             status_code=502,

@@ -2,15 +2,11 @@ import os
 
 import requests
 import streamlit as st
-# Inicia la historia del chat 
-st.set_page_config(page_title="Estimador CAG", layout="wide")
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-#Itera la historia del chat y la muestra en la interfaz
+from pydantic import ValidationError
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+from app.schemas.schemas import DetailLevel, EstimationRequest, OutputFormat, ProjectType
+
+st.set_page_config(page_title="Estimador CAG", layout="wide")
 
 API_BASE_URL = st.sidebar.text_input(
     "URL de la API",
@@ -27,56 +23,105 @@ try:
 except requests.RequestException:
     st.sidebar.error("API no disponible")
 
+PROJECT_TYPE_LABELS = {
+    ProjectType.WEB_SAAS: "Web / SaaS",
+    ProjectType.MOBILE_APP: "App móvil",
+    ProjectType.INTERNAL_TOOL: "Herramienta interna",
+    ProjectType.API: "API",
+    ProjectType.DATA_PIPELINE: "Pipeline de datos",
+}
+
+DETAIL_LEVEL_LABELS = {
+    DetailLevel.SUMMARY: "Resumen",
+    DetailLevel.MEDIUM: "Medio",
+    DetailLevel.DETAILED: "Detallado",
+}
+
+OUTPUT_FORMAT_LABELS = {
+    OutputFormat.PHASES_TABLE: "Tabla por fases",
+    OutputFormat.LINE_ITEMS: "Partidas",
+    OutputFormat.NARRATIVE: "Narrativo",
+}
+
 st.title("Estimador CAG")
-st.caption("Pega la transcripción de una reunión para generar una estimación.")
+st.caption("Describe el proyecto para generar una estimación.")
 
-transcription = st.text_area(
-    "Transcripción",
-    height=240,
-    placeholder="Pega aquí la transcripción de la reunión con el cliente...",
-)
+with st.form("estimation_form"):
+    description = st.text_area(
+        "Descripción del proyecto",
+        height=240,
+        placeholder="Describe el alcance, funcionalidades y restricciones del proyecto...",
+        help="Mínimo 20 caracteres, máximo 2000.",
+    )
 
-if st.button(
-    "Generar estimación",
-    type="primary",
-    disabled=not transcription.strip(),
-):
-    with st.spinner("Generando estimación..."):
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/api/v1/estimate",
-                json={"transcription": transcription.strip()},
-                timeout=120,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except requests.ConnectionError:
-            st.error(
-                "No se pudo conectar con la API. "
-                "Asegúrate de tener corriendo `uv run python main.py`."
-            )
-        except requests.Timeout:
-            st.error("La solicitud tardó demasiado. Intenta de nuevo.")
-        except requests.HTTPError:
-            detail = response.json().get("detail", response.text)
-            st.error(f"Error de la API: {detail}")
-        else:
+    col_type, col_detail = st.columns(2)
+    with col_type:
+        project_type = st.selectbox(
+            "Tipo de proyecto",
+            options=list(ProjectType),
+            format_func=lambda option: PROJECT_TYPE_LABELS[option],
+        )
+    with col_detail:
+        detail_level = st.selectbox(
+            "Nivel de detalle",
+            options=list(DetailLevel),
+            format_func=lambda option: DETAIL_LEVEL_LABELS[option],
+        )
 
-            message = st.chat_message("assistant")
-            message.markdown(data["estimation"])
+    output_format = st.selectbox(
+        "Formato de salida",
+        options=list(OutputFormat),
+        format_func=lambda option: OUTPUT_FORMAT_LABELS[option],
+    )
 
-            with st.expander("Detalles de la generación"):
-                col_model, col_provider, col_tokens, col_cost = st.columns(4)
-                col_model.metric("Modelo", data["model"])
-                col_provider.metric("Proveedor", data["provider"])
-                col_tokens.metric("Tokens", data.get("total_tokens") or "—")
-                st.session_state.messages.append({"role": "assistant", "content": data["estimation"]})
+    submitted = st.form_submit_button("Generar estimación", type="primary")
 
-                cost_parts = []
-                if data.get("cost_usd") is not None:
-                    cost_parts.append(f"USD ${data['cost_usd']:.4f}")
-                if data.get("cost_mxn") is not None:
-                    cost_parts.append(f"MXN ${data['cost_mxn']:.2f}")
-                col_cost.metric("Costo", " · ".join(cost_parts) if cost_parts else "—")
+if submitted:
+    try:
+        request = EstimationRequest(
+            description=description.strip(),
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+        )
+    except ValidationError as exc:
+        for error in exc.errors():
+            st.error(error["msg"])
+    else:
+        with st.spinner("Generando estimación..."):
+            try:
+                response = requests.post(
+                    f"{API_BASE_URL}/api/v1/estimate",
+                    json=request.model_dump(mode="json"),
+                    timeout=120,
+                )
+                response.raise_for_status()
+                data = response.json()
+            except requests.ConnectionError:
+                st.error(
+                    "No se pudo conectar con la API. "
+                    "Asegúrate de tener corriendo `uv run python main.py`."
+                )
+            except requests.Timeout:
+                st.error("La solicitud tardó demasiado. Intenta de nuevo.")
+            except requests.HTTPError:
+                detail = response.json().get("detail", response.text)
+                st.error(f"Error de la API: {detail}")
+            else:
+                st.subheader("Estimación")
+                st.markdown(data["estimation"])
 
-                st.caption(f"Generado: {data['generated_at']}")
+                with st.expander("Detalles de la generación"):
+                    col_model, col_provider, col_tokens, col_cost = st.columns(4)
+                    col_model.metric("Modelo", data["model"])
+                    col_provider.metric("Proveedor", data["provider"])
+                    col_tokens.metric("Tokens", data.get("total_tokens") or "—")
+
+                    cost_parts = []
+                    if data.get("cost_usd") is not None:
+                        cost_parts.append(f"USD ${data['cost_usd']:.4f}")
+                    if data.get("cost_mxn") is not None:
+                        cost_parts.append(f"MXN ${data['cost_mxn']:.2f}")
+                    col_cost.metric("Costo", " · ".join(cost_parts) if cost_parts else "—")
+
+                    st.caption(f"Generado: {data['generated_at']}")

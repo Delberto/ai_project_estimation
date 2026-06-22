@@ -2,6 +2,7 @@ from openai import OpenAI
 
 from app.config import settings
 from app.context.examples import ESTIMATION_EXAMPLES
+from app.schemas.schemas import EstimationRequest
 from app.services.pricing import calculate_cost_mxn, calculate_cost_usd
 
 
@@ -35,8 +36,18 @@ Responde únicamente con la estimación, sin explicaciones adicionales.
 """
 
 
+def build_user_prompt(request: EstimationRequest) -> str:
+    return f"""Descripción del proyecto:
+{request.description.strip()}
+
+Tipo de proyecto: {request.project_type.value}
+Nivel de detalle: {request.detail_level.value}
+Formato de salida: {request.output_format.value}
+"""
+
+
 def generate_estimation(
-    transcription: str,
+    request: EstimationRequest,
     examples: list[dict] | None = None,
 ) -> dict:
     context_examples = examples if examples is not None else ESTIMATION_EXAMPLES
@@ -44,7 +55,7 @@ def generate_estimation(
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": transcription},
+        {"role": "user", "content": build_user_prompt(request)},
     ]
 
     client = OpenAI(api_key=settings.OPENAI_API_KEY)

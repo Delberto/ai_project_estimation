@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openai"
     OPENAI_MODEL: str = "gpt-4o-mini"
     USD_TO_MXN_RATE: float = 18.0
+    APP_ENV: str = "development"
 
     class Config:
         env_file = ".env"

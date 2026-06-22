@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from app.config import get_settings
 from app.routers import estimations
 
-def configure_logging():
+def configure_logging(app_env: str = "development"):
     """Dual config: readable console in development, JSON in production."""
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 
@@ -19,7 +19,7 @@ def configure_logging():
         structlog.processors.EventRenamer("msg"),
     ]
 
-    if os.environ.get("ENV") == "production":
+    if app_env == "production":
         # Production: JSON output for observability tool ingestion
         structlog.configure(
             processors=shared_processors + [
@@ -43,9 +43,9 @@ def configure_logging():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle."""
-    configure_logging()
-    log = structlog.get_logger()
     settings = get_settings()
+    configure_logging(settings.APP_ENV)
+    log = structlog.get_logger()
     log.info("application_started", environment=settings.APP_ENV)
     yield
     log.info("application_shutdown")

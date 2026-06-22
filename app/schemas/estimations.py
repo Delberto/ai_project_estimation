@@ -1,14 +1,10 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
+from app.schemas.schemas import EstimationRequest
 
-class EstimationRequest(BaseModel):
-    transcription: str = Field(
-        ...,
-        min_length=1,
-        description="Transcripción de la reunión con el cliente",
-    )
+__all__ = ["EstimationRequest", "EstimationResponse"]
 
 
 class EstimationResponse(BaseModel):
