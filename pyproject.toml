@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "jinja2>=3.1.6",
     "fastapi>=0.136.3",
     "numpy",
     "openai>=2.40.0",

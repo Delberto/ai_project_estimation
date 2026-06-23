@@ -2,17 +2,24 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
+from app.prompts.loader import render_estimation_prompt
 from app.schemas.estimations import EstimationResponse
 from app.schemas.schemas import EstimationRequest
 from app.services.llm_service import generate_estimation
 
 router = APIRouter(tags=["estimations"])
 
+PROMPT_VERSION = "v1"
+
 
 @router.post("/estimate", response_model=EstimationResponse)
 def estimate(request: EstimationRequest) -> EstimationResponse:
     try:
-        result = generate_estimation(request)
+        system_prompt, user_prompt = render_estimation_prompt(
+            request,
+            version=PROMPT_VERSION,
+        )
+        result = generate_estimation(system_prompt, user_prompt)
     except Exception as exc:
         raise HTTPException(
             status_code=502,
