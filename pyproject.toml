@@ -16,7 +16,7 @@ dependencies = [
     "uvicorn[standard]>=0.48.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
