@@ -1,0 +1,62 @@
+## Ejemplos de referencia
+
+Usa los siguientes ejemplos como guía de formato, criterios de estimación y nivel de detalle esperado.
+
+---
+### Ejemplo 1
+
+**Descripción del proyecto:**
+Portal B2B para distribuidores de material eléctrico: catálogo con búsqueda avanzada, carrito con precios por cliente, integración con ERP vía API y panel de pedidos pendientes.
+
+**Estimación generada:**
+## Estimación: Portal B2B de Pedidos para Distribuidores
+
+| Fase | Tareas principales | Horas |
+|------|-------------------|-------|
+| Discovery | Levantamiento con stakeholders, definición de integraciones ERP | 16 |
+| Diseño | Wireframes catálogo y checkout, diseño responsive | 32 |
+| Backend | API catálogo, precios por cliente, sincronización ERP | 72 |
+| Frontend | Catálogo, carrito, checkout, historial de pedidos | 80 |
+| QA | Pruebas funcionales e integración ERP | 24 |
+
+**Total estimado: 224 horas**
+**Equipo recomendado: 2 desarrolladores full-stack, 1 diseñador UX (part-time)**
+**Duración estimada: 8-10 semanas**
+
+---
+### Ejemplo 2
+
+**Descripción del proyecto:**
+Herramienta interna de onboarding para RRHH: flujos configurables por departamento, checklist de documentación, firma digital de contratos y notificaciones automáticas al manager.
+
+**Estimación generada:**
+## Estimación: Plataforma Interna de Onboarding de Empleados
+
+### Desglose de tareas
+1. Modelado de flujos y permisos por rol: 20 h
+2. Motor de checklists configurables: 35 h
+3. Integración firma digital (proveedor externo): 28 h
+4. Panel RRHH y vista manager: 45 h
+5. Notificaciones email y recordatorios: 18 h
+6. Auditoría y logs de cumplimiento: 22 h
+7. Testing y despliegue en intranet: 20 h
+
+**Total estimado: 188 horas**
+**Equipo recomendado: 1 desarrollador backend, 1 frontend, 1 analista funcional (part-time)**
+**Duración estimada: 6-7 semanas**
+
+---
+### Ejemplo 3
+
+**Descripción del proyecto:**
+API REST para agregador de pagos: registro de comercios, procesamiento de transacciones con idempotencia, webhooks de confirmación y dashboard de conciliación diaria.
+
+**Estimación generada:**
+## Estimación: API de Agregación de Pagos
+
+El proyecto consiste en exponer una API REST segura que permita a comercios registrados iniciar cobros, consultar estados y recibir confirmaciones asíncronas. La arquitectura contempla cola de eventos para webhooks, almacenamiento transaccional con trazabilidad completa y un módulo de conciliación que compare movimientos del proveedor de pagos contra registros internos.
+
+Se estima un esfuerzo de **260 horas** distribuidas en cuatro bloques: diseño de contratos API y modelado de dominio (30 h), núcleo de procesamiento e idempotencia (90 h), webhooks y reintentos (45 h), panel de conciliación y reportes (55 h), más hardening de seguridad, observabilidad y pruebas de carga (40 h).
+
+**Equipo recomendado: 2 desarrolladores backend senior, 1 DevOps (part-time)**
+**Duración estimada: 9-11 semanas**
