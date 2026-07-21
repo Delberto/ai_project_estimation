@@ -2,7 +2,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from app.schemas.schemas import EstimationRequest
+from app.schemas.estimations import EstimationRequest
 
 PROMPTS_DIR = Path(__file__).parent
 

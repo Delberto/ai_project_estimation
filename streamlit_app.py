@@ -4,7 +4,13 @@ import requests
 import streamlit as st
 from pydantic import ValidationError
 
-from app.schemas.schemas import DetailLevel, EstimationRequest, OutputFormat, ProjectType
+from app.schemas.estimations import (
+    DetailLevel,
+    EstimationRequest,
+    EstimationResponse,
+    OutputFormat,
+    ProjectType,
+)
 
 st.set_page_config(page_title="Estimador CAG", layout="wide")
 
@@ -42,6 +48,43 @@ OUTPUT_FORMAT_LABELS = {
     OutputFormat.LINE_ITEMS: "Partidas",
     OutputFormat.NARRATIVE: "Narrativo",
 }
+
+
+def render_estimation(response: EstimationResponse, output_format: OutputFormat) -> None:
+    result = response.result
+    st.markdown(result.summary)
+
+    if output_format == OutputFormat.PHASES_TABLE:
+        st.table(
+            [
+                {
+                    "Fase": phase.name,
+                    "Semanas": phase.duration_weeks,
+                    "Costo (EUR)": phase.cost_eur,
+                    "Resumen": phase.summary,
+                }
+                for phase in result.phases
+            ]
+        )
+    elif output_format == OutputFormat.LINE_ITEMS:
+        for index, phase in enumerate(result.phases, start=1):
+            st.markdown(
+                f"{index}. **{phase.name}** — {phase.duration_weeks} sem., "
+                f"{phase.cost_eur:,} EUR — {phase.summary}"
+            )
+    else:
+        for phase in result.phases:
+            st.markdown(
+                f"**{phase.name}** ({phase.duration_weeks} sem., {phase.cost_eur:,} EUR): "
+                f"{phase.summary}"
+            )
+
+    st.markdown(
+        f"**Total:** {result.total_duration_weeks} semanas · "
+        f"{result.total_cost_eur:,} EUR · "
+        f"Confianza: {result.confidence_pct}%"
+    )
+
 
 st.title("Estimador CAG")
 st.caption("Describe el proyecto para generar una estimación.")
@@ -96,7 +139,7 @@ if submitted:
                     timeout=120,
                 )
                 response.raise_for_status()
-                data = response.json()
+                estimation = EstimationResponse.model_validate(response.json())
             except requests.ConnectionError:
                 st.error(
                     "No se pudo conectar con la API. "
@@ -105,23 +148,17 @@ if submitted:
             except requests.Timeout:
                 st.error("La solicitud tardó demasiado. Intenta de nuevo.")
             except requests.HTTPError:
-                detail = response.json().get("detail", response.text)
+                try:
+                    detail = response.json().get("detail", response.text)
+                except ValueError:
+                    detail = response.text or f"HTTP {response.status_code}"
                 st.error(f"Error de la API: {detail}")
             else:
                 st.subheader("Estimación")
-                st.markdown(data["estimation"])
+                render_estimation(estimation, output_format)
 
                 with st.expander("Detalles de la generación"):
-                    col_model, col_provider, col_tokens, col_cost = st.columns(4)
-                    col_model.metric("Modelo", data["model"])
-                    col_provider.metric("Proveedor", data["provider"])
-                    col_tokens.metric("Tokens", data.get("total_tokens") or "—")
-
-                    cost_parts = []
-                    if data.get("cost_usd") is not None:
-                        cost_parts.append(f"USD ${data['cost_usd']:.4f}")
-                    if data.get("cost_mxn") is not None:
-                        cost_parts.append(f"MXN ${data['cost_mxn']:.2f}")
-                    col_cost.metric("Costo", " · ".join(cost_parts) if cost_parts else "—")
-
-                    st.caption(f"Generado: {data['generated_at']}")
+                    col_version, col_cached, col_confidence = st.columns(3)
+                    col_version.metric("Versión del prompt", estimation.prompt_version)
+                    col_cached.metric("Desde caché", "Sí" if estimation.cached else "No")
+                    col_confidence.metric("Confianza", f"{estimation.result.confidence_pct}%")
