@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 
 from app.config import get_settings
-from app.routers import estimations
+from app.routers import estimations, sessions
 
 def configure_logging(app_env: str = "development"):
     """Dual config: readable console in development, JSON in production."""
@@ -62,6 +62,7 @@ app = FastAPI(
 )
 
 app.include_router(estimations.router, prefix="/api/v1")
+app.include_router(sessions.router, prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)
