@@ -1,13 +1,10 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI
 
 from app.config import settings
 from app.prompts.loader import render_estimation_prompt
-from app.schemas.estimations import EstimationResponse
-from app.schemas.schemas import EstimationRequest
-from app.services.llm_service import generate_estimation
+from app.schemas.estimations import EstimationRequest, EstimationResponse
+from app.services.llm_wrapper import generate_estimation
 
 router = APIRouter(tags=["estimations"])
 
@@ -60,14 +57,7 @@ def estimate(request: EstimationRequest) -> EstimationResponse:
         ) from exc
 
     return EstimationResponse(
-        estimation=result["estimation"],
-        model=result["model"],
-        provider=result["provider"],
-        prompt_tokens=result.get("prompt_tokens"),
-        completion_tokens=result.get("completion_tokens"),
-        total_tokens=result.get("total_tokens"),
-        cached_tokens=result.get("cached_tokens"),
-        cost_usd=result.get("cost_usd"),
-        cost_mxn=result.get("cost_mxn"),
-        generated_at=datetime.now(timezone.utc),
+        result=result,
+        prompt_version=PROMPT_VERSION,
+        cached=False,
     )

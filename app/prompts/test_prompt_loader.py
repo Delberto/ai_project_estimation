@@ -1,5 +1,5 @@
 from app.prompts.loader import render_estimation_prompt
-from app.schemas.schemas import (
+from app.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     OutputFormat,
@@ -9,7 +9,7 @@ from app.schemas.schemas import (
 DESCRIPTION = (
     "Portal de gestión de flotas con GPS en tiempo real y alertas de mantenimiento."
 )
-ASSUMPTIONS_PER_PHASE_INSTRUCTION = "Lista asunciones explícitas por fase"
+ASSUMPTIONS_PER_PHASE_INSTRUCTION = "supuestos explícitos y riesgos técnicos"
 
 
 def _make_request(**overrides) -> EstimationRequest:
@@ -30,7 +30,7 @@ def test_user_prompt_wraps_description_in_project_description_block() -> None:
     assert expected_block in user
 
 
-def test_system_prompt_includes_phases_table_keyword_only_for_phases_table() -> None:
+def test_system_prompt_reflects_requested_output_format() -> None:
     phases_system, _ = render_estimation_prompt(
         _make_request(output_format=OutputFormat.PHASES_TABLE)
     )
@@ -38,8 +38,8 @@ def test_system_prompt_includes_phases_table_keyword_only_for_phases_table() -> 
         _make_request(output_format=OutputFormat.NARRATIVE)
     )
 
-    assert "phases_table" in phases_system
-    assert "phases_table" not in narrative_system
+    assert "(phases_table)" in phases_system
+    assert "(narrative)" in narrative_system
 
 
 def test_system_prompt_includes_assumptions_per_phase_only_for_detailed() -> None:
