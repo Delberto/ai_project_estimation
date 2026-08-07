@@ -5,6 +5,7 @@ from app.schemas.estimations import (
     OutputFormat,
     ProjectType,
 )
+from app.services.sessions import ProjectMetadata
 
 DESCRIPTION = (
     "Portal de gestión de flotas con GPS en tiempo real y alertas de mantenimiento."
@@ -52,3 +53,34 @@ def test_system_prompt_includes_assumptions_per_phase_only_for_detailed() -> Non
 
     assert ASSUMPTIONS_PER_PHASE_INSTRUCTION in detailed_system
     assert ASSUMPTIONS_PER_PHASE_INSTRUCTION not in summary_system
+
+
+def test_system_prompt_includes_empty_project_metadata_block_by_default() -> None:
+    system, _ = render_estimation_prompt(_make_request())
+
+    assert "<project_metadata>" in system
+    assert "</project_metadata>" in system
+    assert "project_name:" not in system
+    assert "mentioned_technologies:" not in system
+
+
+def test_system_prompt_injects_populated_project_metadata() -> None:
+    metadata = ProjectMetadata(
+        project_name="FleetTrack",
+        assumed_team_size=3,
+        mentioned_technologies=["React", "PostgreSQL"],
+        agreed_scope="GPS en tiempo real y alertas de mantenimiento.",
+    )
+    system, _ = render_estimation_prompt(
+        _make_request(),
+        project_metadata=metadata,
+    )
+
+    start = system.index("<project_metadata>")
+    end = system.index("</project_metadata>")
+    block = system[start:end]
+
+    assert "- project_name: FleetTrack" in block
+    assert "- assumed_team_size: 3" in block
+    assert "- mentioned_technologies: React, PostgreSQL" in block
+    assert "- agreed_scope: GPS en tiempo real y alertas de mantenimiento." in block
