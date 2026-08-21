@@ -3,6 +3,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from app.schemas.estimations import EstimationRequest
+from app.services.sessions import ProjectMetadata
 
 PROMPTS_DIR = Path(__file__).parent
 
@@ -22,6 +23,7 @@ def _get_environment(version: str) -> Environment:
 def render_estimation_prompt(
     request: EstimationRequest,
     version: str = "v1",
+    project_metadata: ProjectMetadata | None = None,
 ) -> tuple[str, str]:
     env = _get_environment(version)
     context = {
@@ -30,6 +32,7 @@ def render_estimation_prompt(
         "project_type": request.project_type.value,
         "detail_level": request.detail_level.value,
         "output_format": request.output_format.value,
+        "project_metadata": project_metadata or ProjectMetadata(),
     }
     system = env.get_template("system.j2").render(**context)
     user = env.get_template("user.j2").render(**context)

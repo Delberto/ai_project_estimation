@@ -17,7 +17,9 @@ st.subheader("Endpoints")
 st.markdown(
     f"""
 - **Health:** `{api_base_url}/health`
-- **Estimar:** `POST {api_base_url}/api/v1/estimate`
+- **Sesión:** `POST {api_base_url}/api/v1/sessions`
+- **Estimar (sesión):** `POST {api_base_url}/api/v1/sessions/{{id}}/estimate`
+- **Estimar (sin sesión):** `POST {api_base_url}/api/v1/estimate`
 - **Documentación:** [{api_base_url}/docs]({api_base_url}/docs)
 """
 )

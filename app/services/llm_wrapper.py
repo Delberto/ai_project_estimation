@@ -27,6 +27,11 @@ from pydantic import BaseModel
 from app.config import settings
 from app.schemas.estimations import EstimationResult
 from app.services.cache import EstimationCache
+from app.services.llm_files import (
+    ProviderUploadedFile,
+    build_user_content_with_pdfs,
+    delete_provider_file,
+)
 
 log = structlog.get_logger()
 
@@ -188,12 +193,14 @@ class LLMWrapper:
     def complete_structured(
         self,
         *,
-        system_prompt: str,
-        user_message: str,
+        system_prompt: str | None = None,
+        user_message: str | None = None,
         response_model: type[T],
         model_override: str | None = None,
         max_tokens: int = 4000,
         max_retries: int = 6,
+        pdf_uploads: list[ProviderUploadedFile] | None = None,
+        messages: list[dict[str, Any]] | None = None,
     ) -> tuple[T, dict[str, Any]]:
         """Run the LLM with Instructor and return ``(model_instance, meta)``.
 
@@ -201,37 +208,67 @@ class LLMWrapper:
         re-prompts the LLM up to ``max_retries`` times when a Pydantic validator
         raises, feeding the ``ValueError`` message back to the model.
 
+        Pass either ``messages`` (multi-turno, p.ej. desde
+        ``ConversationHistory.to_messages_list``) o el par
+        ``system_prompt`` + ``user_message``.
+
+        When ``pdf_uploads`` is set, the **último** mensaje user se convierte
+        en content multimodal con los ``file_id``s (OpenAI ``file`` parts o
+        Anthropic ``document`` blocks).
+
         Streaming bypasses are not relevant here — the entire model is built
         atomically by Instructor before this function returns.
         """
         target_model = model_override or self.primary_model
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
+        provider = _provider_from_model(target_model)
+        if messages is not None:
+            api_messages = _attach_pdfs_to_last_user(
+                messages,
+                pdf_uploads=pdf_uploads or [],
+                provider=provider,
+            )
+        else:
+            if system_prompt is None or user_message is None:
+                raise ValueError(
+                    "Provide messages=… or both system_prompt and user_message"
+                )
+            user_content = build_user_content_with_pdfs(
+                text=user_message,
+                pdf_uploads=pdf_uploads or [],
+                provider=provider,
+            )
+            api_messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
 
         api_key = (
-            self.anthropic_api_key
-            if _provider_from_model(target_model) == "anthropic"
-            else self.openai_api_key
+            self.anthropic_api_key if provider == "anthropic" else self.openai_api_key
         )
+        create_kwargs: dict[str, Any] = {
+            "model": target_model,
+            "api_key": api_key,
+            "timeout": self.timeout,
+            "messages": api_messages,
+            "response_model": response_model,
+            "max_tokens": max_tokens,
+            "max_retries": max_retries,
+        }
+        # Anthropic Files API requires the beta header on the Messages call.
+        if provider == "anthropic" and pdf_uploads:
+            create_kwargs["extra_headers"] = {
+                "anthropic-beta": "files-api-2025-04-14",
+            }
 
         log.info(
             "llm_structured_call_started",
             model=target_model,
             response_model=response_model.__name__,
+            pdf_count=len(pdf_uploads or []),
         )
         t0 = time.perf_counter()
         try:
-            result = self._instructor.chat.completions.create(
-                model=target_model,
-                api_key=api_key,
-                timeout=self.timeout,
-                messages=messages,
-                response_model=response_model,
-                max_tokens=max_tokens,
-                max_retries=max_retries,
-            )
+            result = self._instructor.chat.completions.create(**create_kwargs)
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
             log.error(
@@ -245,7 +282,7 @@ class LLMWrapper:
         latency_ms = int((time.perf_counter() - t0) * 1000)
         meta = {
             "model": _normalise_model_name(target_model),
-            "provider": _provider_from_model(target_model),
+            "provider": provider,
             "latency_ms": latency_ms,
         }
         log.info(
@@ -346,10 +383,71 @@ def get_llm_wrapper() -> LLMWrapper:
     return _llm_wrapper
 
 
-def generate_estimation(system_prompt: str, user_message: str) -> EstimationResult:
-    result, _meta = get_llm_wrapper().complete_structured(
-        system_prompt=system_prompt,
-        user_message=user_message,
-        response_model=EstimationResult,
-    )
-    return result
+def generate_estimation(
+    system_prompt: str | None = None,
+    user_message: str | None = None,
+    *,
+    messages: list[dict[str, Any]] | None = None,
+    pdf_uploads: list[ProviderUploadedFile] | None = None,
+    cleanup_pdfs: bool = True,
+) -> EstimationResult:
+    """Generate a structured estimation, optionally with PDF file_ids attached.
+
+    Accepts either a single-turn ``system_prompt`` + ``user_message`` or a
+    full ``messages`` list (sliding-window history).
+
+    PDFs must already be uploaded via :mod:`app.services.llm_files`. When
+    ``cleanup_pdfs`` is True (default), remote files are deleted after the
+    call finishes (success or failure).
+    """
+    wrapper = get_llm_wrapper()
+    try:
+        result, _meta = wrapper.complete_structured(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            messages=messages,
+            response_model=EstimationResult,
+            pdf_uploads=pdf_uploads,
+        )
+        return result
+    finally:
+        if cleanup_pdfs and pdf_uploads:
+            for uploaded in pdf_uploads:
+                delete_provider_file(uploaded)
+
+
+def _attach_pdfs_to_last_user(
+    messages: list[dict[str, Any]],
+    *,
+    pdf_uploads: list[ProviderUploadedFile],
+    provider: str,
+) -> list[dict[str, Any]]:
+    """Copia ``messages`` y adjunta PDFs al content del último mensaje user."""
+    if not pdf_uploads:
+        return list(messages)
+
+    api_messages = [dict(message) for message in messages]
+    for index in range(len(api_messages) - 1, -1, -1):
+        if api_messages[index].get("role") != "user":
+            continue
+        content = api_messages[index].get("content", "")
+        if not isinstance(content, str):
+            raise ValueError(
+                "Cannot attach PDFs to a non-text user message in history"
+            )
+        api_messages[index] = {
+            **api_messages[index],
+            "content": build_user_content_with_pdfs(
+                text=content,
+                pdf_uploads=pdf_uploads,
+                provider=provider,
+            ),
+        }
+        return api_messages
+
+    raise ValueError("No user message found to attach PDF uploads")
+
+
+def active_llm_provider() -> str:
+    """Provider inferred from the primary model (``openai`` / ``anthropic``)."""
+    return _provider_from_model(settings.OPENAI_MODEL)

@@ -16,6 +16,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.sessions import ProjectMetadata
+
 
 class ProjectType(str, Enum):
     MOBILE_APP = "mobile_app"
@@ -115,3 +117,10 @@ class EstimationResponse(BaseModel):
     result: EstimationResult
     prompt_version: str
     cached: bool = False
+    project_metadata: ProjectMetadata | None = Field(
+        default=None,
+        description=(
+            "Memoria estructurada de la sesión tras el turno "
+            "(solo en estimaciones con session_id)."
+        ),
+    )

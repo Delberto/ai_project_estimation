@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     LLM_NUM_RETRIES: int = 2
     USD_TO_MXN_RATE: float = 18.0
     APP_ENV: str = "development"
+    # Pares user+assistant retenidos en ConversationHistory (ventana deslizante).
+    MAX_TURNS: int = 6
 
     class Config:
         env_file = ".env"
