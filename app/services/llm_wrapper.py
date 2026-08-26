@@ -268,7 +268,9 @@ class LLMWrapper:
         )
         t0 = time.perf_counter()
         try:
-            result = self._instructor.chat.completions.create(**create_kwargs)
+            result, raw_completion = self._instructor.chat.completions.create_with_completion(
+                **create_kwargs
+            )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
             log.error(
@@ -280,16 +282,30 @@ class LLMWrapper:
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
+        usage = getattr(raw_completion, "usage", None)
+        input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        resolved_model = _normalise_model_name(
+            getattr(raw_completion, "model", target_model)
+        )
         meta = {
-            "model": _normalise_model_name(target_model),
+            "model": resolved_model,
             "provider": provider,
             "latency_ms": latency_ms,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_usd": _estimate_cost(resolved_model, input_tokens, output_tokens),
+            "cache_hit_kind": "none",
+            "last_resolved_tier": resolved_model,
         }
         log.info(
             "llm_structured_call_completed",
             model=meta["model"],
             provider=meta["provider"],
             latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=meta["cost_usd"],
         )
         return result, meta
 

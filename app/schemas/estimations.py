@@ -13,6 +13,7 @@ When the LLM violates a validator, Instructor re-prompts the model with the
 """
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -123,4 +124,8 @@ class EstimationResponse(BaseModel):
             "Memoria estructurada de la sesión tras el turno "
             "(solo en estimaciones con session_id)."
         ),
+    )
+    turn_observed: dict[str, Any] | None = Field(
+        default=None,
+        description="Telemetría del turno (13 campos) para stress evals y observabilidad.",
     )

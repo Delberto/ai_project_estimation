@@ -20,11 +20,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.prompts.loader import render_estimation_prompt
 from app.routers.estimations import (
     PROMPT_VERSION,
     InputModerationError,
-    validate_input,
 )
 from app.schemas.estimations import (
     DetailLevel,
@@ -39,11 +37,10 @@ from app.services.document_extractor import (
     UnsupportedDocumentError,
     prepare_attachments,
 )
+from app.services.estimation import estimation_service
 from app.services.llm_files import FileUploadError, delete_provider_file
-from app.services.llm_wrapper import active_llm_provider, generate_estimation
-from app.services.metadata_extractor import update_project_metadata
-from app.config import settings
-from app.services.sessions import ConversationHistory, session_store
+from app.services.llm_wrapper import active_llm_provider
+from app.services.sessions import session_store
 
 router = APIRouter(tags=["sessions"])
 
@@ -93,30 +90,7 @@ async def estimate_for_session(
         ),
     ),
 ) -> EstimationResponse:
-    """Estima un proyecto dentro de una sesión existente.
-
-    Contrato multipart
-    ------------------
-    - ``transcript`` (string, obligatorio): transcripción de la reunión o
-      descripción libre del alcance.
-    - ``attachments`` (lista de archivos, opcional): PDFs / Word.
-
-    Pipeline
-    --------
-    1. Resolver la sesión (404 si el UUID no existe en el store en memoria).
-    2. Procesar adjuntos:
-       - DOCX → extracción local y concat a transcript
-         (``--- attachment: nombre.docx ---``).
-       - PDF  → upload a Files API del proveedor activo + ``file_id``
-         en el mensaje multimodal al LLM.
-    3. Moderación + anti prompt-injection sobre el texto combinado.
-    4. Renderizar prompts Jinja (inyectando ``session.metadata`` en el
-       system prompt) y llamar al LLM estructurado (Instructor).
-    5. Actualizar historial + ``project_metadata`` con hechos del turno.
-    6. Devolver ``EstimationResponse`` (mismo shape que ``POST /estimate``).
-       Los PDFs remotos se borran al terminar la llamada LLM.
-    """
-    # --- 1. Sesión ---------------------------------------------------------
+    """Estima un proyecto dentro de una sesión existente."""
     session = session_store.get(session_id)
     if session is None:
         raise HTTPException(
@@ -124,8 +98,6 @@ async def estimate_for_session(
             detail=f"Sesión no encontrada: {session_id}",
         )
 
-    # --- 2. Lectura + preparación de adjuntos ------------------------------
-    # El proveedor debe coincidir con el modelo primario (Files API ≠ cruzado).
     provider = active_llm_provider()
     attachment_payload: list[tuple[str, bytes]] = []
     for upload in attachments or []:
@@ -146,7 +118,6 @@ async def estimate_for_session(
     except FileUploadError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    # --- 3. Request tipado para el motor de prompts ------------------------
     request = EstimationRequest(
         description=prepared.description,
         project_type=ProjectType.WEB_SAAS,
@@ -154,47 +125,16 @@ async def estimate_for_session(
         output_format=OutputFormat.PHASES_TABLE,
     )
 
-    # --- 4. Moderación + LLM -----------------------------------------------
-    # Si fallamos antes de generate_estimation, hay que borrar los PDFs
-    # remotos a mano (generate_estimation ya limpia en su finally).
-    pdfs_handed_to_llm = False
+    estimation_started = False
     try:
-        validate_input(request.description)
-
-        # Metadata vacío → bloque <project_metadata> vacío (primer turno).
-        # El system se regenera otra vez en to_messages_list(); aquí solo
-        # necesitamos el user_prompt del turno actual.
-        system_prompt, user_prompt = render_estimation_prompt(
-            request,
-            version=PROMPT_VERSION,
-            project_metadata=session.metadata,
-        )
-
-        if session.history is None:
-            session.history = ConversationHistory(
-                system_prompt=system_prompt,
-                max_turns=settings.MAX_TURNS,
-            )
-        session.history.add_user(user_prompt)
-
-        messages = session.history.to_messages_list(
-            session.metadata,
+        result, metadata, turn_observed = estimation_service.estimate_conversational(
+            session_id=session_id,
+            session=session,
+            prepared=prepared,
             request=request,
-            version=PROMPT_VERSION,
+            prompt_version=PROMPT_VERSION,
         )
-
-        pdfs_handed_to_llm = True
-        result = generate_estimation(
-            messages=messages,
-            pdf_uploads=prepared.pdf_uploads,
-        )
-
-        session.history.add_assistant(result.summary)
-        session.metadata = update_project_metadata(
-            session.metadata,
-            user_text=prepared.description,
-            result=result,
-        )
+        estimation_started = True
     except InputModerationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPException:
@@ -205,7 +145,7 @@ async def estimate_for_session(
             detail=f"Error al generar la estimación: {exc}",
         ) from exc
     finally:
-        if not pdfs_handed_to_llm:
+        if not estimation_started:
             for uploaded in prepared.pdf_uploads:
                 delete_provider_file(uploaded)
 
@@ -213,5 +153,6 @@ async def estimate_for_session(
         result=result,
         prompt_version=PROMPT_VERSION,
         cached=False,
-        project_metadata=session.metadata,
+        project_metadata=metadata,
+        turn_observed=turn_observed,
     )

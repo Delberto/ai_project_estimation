@@ -3,3 +3,5 @@
 .venv
 __pycache__
 *.pyc
+evals/stress/fixtures/*.pdf
+evals/stress/results.csv

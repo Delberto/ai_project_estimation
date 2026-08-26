@@ -52,7 +52,7 @@ def _clean_session_store() -> Iterator[None]:
 @pytest.fixture(autouse=True)
 def _skip_moderation() -> Iterator[None]:
     """Evita llamadas reales a OpenAI Moderations en cada estimate."""
-    with patch("app.routers.sessions.validate_input", return_value=None):
+    with patch("app.services.estimation.validate_input", return_value=None):
         yield
 
 

@@ -6,12 +6,13 @@ Mockean el LLM y la Files API para no depender de proveedores externos.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
 
 from app.config import settings
+from app.schemas.estimations import EstimationResult
 from app.services.llm_files import ProviderUploadedFile
 from app.services.sessions import MAX_TURNS, session_store
 from tests.conftest import make_estimation_result
@@ -36,6 +37,25 @@ _BASE_TRANSCRIPT = (
     "electrónica con login, roles y reportes. Stack Python y React. "
     "Equipo de 3 desarrolladores."
 )
+
+
+def _llm_meta() -> dict[str, object]:
+    return {
+        "model": "gpt-4o-mini",
+        "provider": "openai",
+        "latency_ms": 12,
+        "input_tokens": 1200,
+        "output_tokens": 400,
+        "cost_usd": 0.00042,
+        "cache_hit_kind": "none",
+        "last_resolved_tier": "gpt-4o-mini",
+    }
+
+
+def _mock_llm_wrapper(result: EstimationResult) -> MagicMock:
+    wrapper = MagicMock()
+    wrapper.complete_structured.return_value = (result, _llm_meta())
+    return wrapper
 
 
 async def _create_session(client: AsyncClient) -> str:
@@ -71,11 +91,13 @@ async def test_session_links_two_requests_and_updates_project_metadata(
 ) -> None:
     """Dos turnos en la misma sesión acumulan project_metadata."""
     with patch(
-        "app.routers.sessions.generate_estimation",
-        return_value=make_estimation_result(
-            summary=(
-                "Estimación para FacturaGo: MVP de facturación con Python y React."
-            ),
+        "app.services.estimation.get_llm_wrapper",
+        return_value=_mock_llm_wrapper(
+            make_estimation_result(
+                summary=(
+                    "Estimación para FacturaGo: MVP de facturación con Python y React."
+                ),
+            )
         ),
     ):
         session_id = await _create_session(client)
@@ -86,6 +108,8 @@ async def test_session_links_two_requests_and_updates_project_metadata(
         assert meta_first["assumed_team_size"] == 3
         assert "Python" in meta_first["mentioned_technologies"]
         assert "React" in meta_first["mentioned_technologies"]
+        assert first["turn_observed"]["turn_index"] == 1
+        assert len(first["turn_observed"]) == 13
 
         second_transcript = (
             "Ampliamos el alcance de FacturaGo: añadimos PostgreSQL, "
@@ -95,14 +119,12 @@ async def test_session_links_two_requests_and_updates_project_metadata(
         second = await _estimate(client, session_id, second_transcript)
         meta_second = second["project_metadata"]
 
-        # Hechos del primer turno se conservan; llegan tecnologías nuevas.
         assert meta_second["project_name"] == "FacturaGo"
         assert meta_second["assumed_team_size"] == 3
         assert "PostgreSQL" in meta_second["mentioned_technologies"]
         assert "Stripe" in meta_second["mentioned_technologies"]
         assert "Python" in meta_second["mentioned_technologies"]
 
-        # GET refleja la misma memoria estructurada.
         detail = await client.get(f"/api/v1/sessions/{session_id}")
         assert detail.status_code == 200
         assert detail.json()["project_metadata"] == meta_second
@@ -116,36 +138,6 @@ async def test_pdf_attachment_changes_estimation_output(
 
     from app.schemas.estimations import Phase
 
-    def fake_generate(
-        *args: object,
-        messages: list[dict[str, Any]] | None = None,
-        pdf_uploads: list[ProviderUploadedFile] | None = None,
-        **kwargs: object,
-    ) -> Any:
-        if pdf_uploads:
-            return make_estimation_result(
-                summary=(
-                    "Estimación ampliada por ComplianceModule del PDF adjunto "
-                    "con auditoría y retención documental."
-                ),
-                total_cost_eur=48000,
-                phases=[
-                    Phase(
-                        name="Discovery",
-                        duration_weeks=2,
-                        cost_eur=8000,
-                        summary="Requisitos más compliance del PDF adjunto.",
-                    ),
-                    Phase(
-                        name="MVP",
-                        duration_weeks=8,
-                        cost_eur=40000,
-                        summary="Incluye ComplianceModule y controles del PDF.",
-                    ),
-                ],
-            )
-        return make_estimation_result(total_cost_eur=25000)
-
     fake_upload = ProviderUploadedFile(
         file_id="file-test-pdf",
         filename="compliance.pdf",
@@ -153,16 +145,51 @@ async def test_pdf_attachment_changes_estimation_output(
         size_bytes=len(_MINIMAL_PDF),
     )
 
+    def fake_get_llm_wrapper() -> MagicMock:
+        pdf_uploads_holder: list[object] = []
+
+        def complete_structured(*_args: object, **kwargs: object) -> tuple[EstimationResult, dict[str, object]]:
+            pdf_uploads = kwargs.get("pdf_uploads") or []
+            if pdf_uploads:
+                result = make_estimation_result(
+                    summary=(
+                        "Estimación ampliada por ComplianceModule del PDF adjunto "
+                        "con auditoría y retención documental."
+                    ),
+                    total_cost_eur=48000,
+                    phases=[
+                        Phase(
+                            name="Discovery",
+                            duration_weeks=2,
+                            cost_eur=8000,
+                            summary="Requisitos más compliance del PDF adjunto.",
+                        ),
+                        Phase(
+                            name="MVP",
+                            duration_weeks=8,
+                            cost_eur=40000,
+                            summary="Incluye ComplianceModule y controles del PDF.",
+                        ),
+                    ],
+                )
+            else:
+                result = make_estimation_result(total_cost_eur=25000)
+            return result, _llm_meta()
+
+        wrapper = MagicMock()
+        wrapper.complete_structured.side_effect = complete_structured
+        return wrapper
+
     with (
         patch(
-            "app.routers.sessions.generate_estimation",
-            side_effect=fake_generate,
+            "app.services.estimation.get_llm_wrapper",
+            side_effect=fake_get_llm_wrapper,
         ),
         patch(
             "app.services.document_extractor.upload_pdf_to_provider",
             return_value=fake_upload,
         ),
-        patch("app.routers.sessions.delete_provider_file"),
+        patch("app.services.estimation.delete_provider_file"),
         patch(
             "app.routers.sessions.active_llm_provider",
             return_value="openai",
@@ -187,6 +214,7 @@ async def test_pdf_attachment_changes_estimation_output(
     assert cost_with != cost_without
     assert "ComplianceModule" in with_pdf["result"]["summary"]
     assert "ComplianceModule" not in without_pdf["result"]["summary"]
+    assert with_pdf["turn_observed"]["attachments_total_chars"] == len(_MINIMAL_PDF)
 
 
 @pytest.mark.asyncio
@@ -196,24 +224,29 @@ async def test_eight_turns_never_exceed_max_turns_in_llm_messages(
     """Tras 8 turnos, el historial enviado al LLM no supera MAX_TURNS."""
     captured_messages: list[list[dict[str, Any]]] = []
 
-    def fake_generate(
-        *args: object,
-        messages: list[dict[str, Any]] | None = None,
-        **kwargs: object,
-    ) -> Any:
-        assert messages is not None
-        captured_messages.append(list(messages))
-        turn = len(captured_messages)
-        return make_estimation_result(
-            summary=(
-                f"Estimación del turno {turn} para FacturaGo con alcance "
-                f"incremental y supuestos explícitos."
-            ),
-        )
+    def fake_get_llm_wrapper() -> MagicMock:
+        def complete_structured(*_args: object, **kwargs: object) -> tuple[EstimationResult, dict[str, object]]:
+            messages = kwargs.get("messages")
+            assert messages is not None
+            captured_messages.append(list(messages))
+            turn = len(captured_messages)
+            return (
+                make_estimation_result(
+                    summary=(
+                        f"Estimación del turno {turn} para FacturaGo con alcance "
+                        f"incremental y supuestos explícitos."
+                    ),
+                ),
+                _llm_meta(),
+            )
+
+        wrapper = MagicMock()
+        wrapper.complete_structured.side_effect = complete_structured
+        return wrapper
 
     with patch(
-        "app.routers.sessions.generate_estimation",
-        side_effect=fake_generate,
+        "app.services.estimation.get_llm_wrapper",
+        side_effect=fake_get_llm_wrapper,
     ):
         session_id = await _create_session(client)
         for index in range(8):
@@ -231,13 +264,11 @@ async def test_eight_turns_never_exceed_max_turns_in_llm_messages(
         user_turns = sum(1 for message in messages if message["role"] == "user")
         assert user_turns <= MAX_TURNS
 
-    # Tras superar la ventana, el último call debe quedar en el tope.
     last_user_turns = sum(
         1 for message in captured_messages[-1] if message["role"] == "user"
     )
     assert last_user_turns == MAX_TURNS
 
-    # El historial en memoria de la sesión también respeta el tope.
     session = session_store.get(session_id)
     assert session is not None
     assert session.history is not None

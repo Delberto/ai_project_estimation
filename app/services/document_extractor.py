@@ -53,6 +53,7 @@ class PreparedAttachments:
 
     description: str
     pdf_uploads: list[ProviderUploadedFile] = field(default_factory=list)
+    attachments_total_chars: int = 0
 
 
 def extract_docx_text(filename: str, data: bytes) -> str:
@@ -128,8 +129,10 @@ def prepare_attachments(
     """
     parts: list[str] = [transcript.strip()]
     pdf_uploads: list[ProviderUploadedFile] = []
+    attachments_total_chars = 0
 
     for filename, data in attachments:
+        attachments_total_chars += len(data)
         suffix = Path(filename).suffix.lower()
         if suffix not in SUPPORTED_EXTENSIONS:
             raise UnsupportedDocumentError(
@@ -166,4 +169,5 @@ def prepare_attachments(
     return PreparedAttachments(
         description="\n\n".join(parts),
         pdf_uploads=pdf_uploads,
+        attachments_total_chars=attachments_total_chars,
     )
